@@ -1,0 +1,51 @@
+# AlertManager Configuration
+# Alerts receive karta hai Prometheus se
+# aur webhook ke through Kafka mein publish karta hai
+
+global:
+  smtp_smarthost: 'localhost:25'
+  smtp_from: 'alertmanager@sre-copilot.local'
+  resolve_timeout: 5m
+
+# ── Routing ───────────────────────────────────
+route:
+  group_by: ['alertname', 'severity', 'instance']
+  group_wait:      30s    # Nayi alerts ko group karne ka wait
+  group_interval:  5m     # Ek group ko kitni baar alert karo
+  repeat_interval: 12h    # Same alert repeat karne ka interval
+  receiver: 'kafka-webhook'
+
+  routes:
+    # Critical alerts: turant bhejo, group mat karo
+    - match:
+        severity: critical
+      receiver: 'kafka-webhook'
+      group_wait: 0s
+      repeat_interval: 1h
+
+    # Warning alerts: thoda wait karo
+    - match:
+        severity: warning
+      receiver: 'kafka-webhook'
+      group_wait: 30s
+
+# ── Receivers ─────────────────────────────────
+receivers:
+  - name: 'kafka-webhook'
+    webhook_configs:
+      # Yeh FastAPI ka endpoint hai jo Kafka mein publish karega
+      - url: 'http://host.docker.internal:8000/webhook/alertmanager'
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+        # Alert payload mein extra context
+        max_alerts: 10
+
+# ── Inhibit Rules ─────────────────────────────
+# Critical ho to Warning suppress karo (same instance pe)
+inhibit_rules:
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname', 'instance']

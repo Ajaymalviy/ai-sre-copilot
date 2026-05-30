@@ -1,0 +1,211 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────
+#  AI SRE Copilot — Infrastructure Stack
+#  Services: Zookeeper, Kafka, PostgreSQL,
+#            Redis, Qdrant, Prometheus, Loki,
+#            Tempo, Grafana, AlertManager
+# ─────────────────────────────────────────────
+
+networks:
+  sre-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  prometheus_data:
+  loki_data:
+  grafana_data:
+
+services:
+
+  # ── Zookeeper (Kafka needs this) ──────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: sre-zookeeper
+    networks: [sre-net]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka Broker ──────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: sre-kafka
+    networks: [sre-net]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"       # App se connect karne ke liye
+      - "29092:29092"     # Docker internal
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── Kafka Topic Init (ek baar chalega) ────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: sre-kafka-init
+    networks: [sre-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Creating Kafka topics...'
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic incident.alerts --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic incident.status --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic hitl.decisions --partitions 1 --replication-factor 1
+      echo 'Topics created:'
+      kafka-topics --bootstrap-server kafka:29092 --list
+      "
+
+  # ── PostgreSQL ────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: sre-postgres
+    networks: [sre-net]
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      POSTGRES_DB: sre_copilot
+      POSTGRES_USER: sre_user
+      POSTGRES_PASSWORD: sre_pass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sre_user -d sre_copilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sre-redis
+    networks: [sre-net]
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Qdrant (Vector DB for Runbooks) ───────────
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: sre-qdrant
+    networks: [sre-net]
+    ports:
+      - "6333:6333"     # REST API
+      - "6334:6334"     # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Prometheus ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: sre-prometheus
+    networks: [sre-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--storage.tsdb.retention.time=7d"
+
+  # ── AlertManager ──────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: sre-alertmanager
+    networks: [sre-net]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+
+  # ── Loki (Log Aggregation) ────────────────────
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: sre-loki
+    networks: [sre-net]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/config.yml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yml
+
+  # ── Promtail (Log Shipper → Loki) ─────────────
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: sre-promtail
+    networks: [sre-net]
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./loki/promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on: [loki]
+
+  # ── Tempo (Distributed Tracing) ───────────────
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: sre-tempo
+    networks: [sre-net]
+    ports:
+      - "3200:3200"     # Tempo API
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    volumes:
+      - ./tempo/tempo-config.yml:/etc/tempo/config.yml
+    command: ["-config.file=/etc/tempo/config.yml"]
+
+  # ── Grafana (Visualization) ───────────────────
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: sre-grafana
+    networks: [sre-net]
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on: [prometheus, loki, tempo]

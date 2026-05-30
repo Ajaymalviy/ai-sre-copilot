@@ -1,0 +1,76 @@
+# Tempo Configuration — Distributed Tracing
+# OTLP receiver: apps apna trace data yahan bhejte hain
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: info
+
+# ── Trace Receivers ───────────────────────────
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        grpc:
+          endpoint: 0.0.0.0:14250
+
+# ── Ingester ──────────────────────────────────
+ingester:
+  trace_idle_period: 10s
+  max_block_bytes: 1_000_000
+  max_block_duration: 5m
+
+# ── Compactor ─────────────────────────────────
+compactor:
+  compaction:
+    compaction_window: 1h
+    block_retention: 48h      # 2 din tak traces rakhenge
+
+# ── Storage ───────────────────────────────────
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+# ── Query Frontend ────────────────────────────
+query_frontend:
+  search:
+    duration_slo: 5s
+    throughput_bytes_slo: 1.073741824e+09
+  trace_by_id:
+    duration_slo: 5s
+
+# ── Metrics Generator ─────────────────────────
+# Traces se automatically metrics generate karta hai
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: local
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  processor:
+    service_graphs:
+      dimensions: [http.method, http.status_code]
+    span_metrics:
+      dimensions: [http.method, http.status_code, http.route]
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

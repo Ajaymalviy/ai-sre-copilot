@@ -1,0 +1,91 @@
+# Prometheus Alert Rules
+# Yeh alerts fire hote hain → AlertManager → Kafka
+
+groups:
+  - name: sre-copilot-alerts
+    interval: 30s
+    rules:
+
+      # ── CPU Spike ───────────────────────────
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance, job) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% for more than 2 minutes."
+          runbook: "runbooks/high-cpu.md"
+
+      - alert: CriticalCPUUsage
+        expr: |
+          100 - (avg by(instance, job) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Critical CPU spike on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% — immediate action needed."
+
+      # ── Memory ──────────────────────────────
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 3m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}%."
+
+      - alert: OOMKillDetected
+        expr: increase(node_vmstat_oom_kill[1m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "OOM Kill detected on {{ $labels.instance }}"
+          description: "A process was killed due to out-of-memory."
+          runbook: "runbooks/oom-kill.md"
+
+      # ── Disk ────────────────────────────────
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"} /
+           node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% disk space remaining on {{ $labels.mountpoint }}."
+
+      # ── HTTP Error Rate ──────────────────────
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) /
+          rate(http_requests_total[5m]) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "High HTTP error rate for {{ $labels.job }}"
+          description: "Error rate is {{ $value | printf \"%.1f\" }}% over last 5 minutes."
+
+      # ── Service Down ─────────────────────────
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Service {{ $labels.job }} is DOWN"
+          description: "Target {{ $labels.instance }} has been unreachable for 1 minute."
