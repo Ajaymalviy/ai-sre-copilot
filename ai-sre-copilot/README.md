@@ -17,13 +17,13 @@ python3 --version       # Python 3.11+
 
 ## Quick Start (Scratch se)
 
-### Step 1 — Project clone ya copy karo
+### Step 1 — clone or copy  Project 
 
 ```bash
 cd ai-sre-copilot
 ```
 
-### Step 2 — Infra start karo
+### Step 2 — start Infra  
 
 ```bash
 cd infra
@@ -80,13 +80,13 @@ cp .env.example .env
 python scripts/ingest_runbooks.py
 ```
 
-### Step 7 — FastAPI app start karo
+### Step 7 — Start FastAPI app  
 
 ```bash
 uvicorn main:app --reload --port 8000
 ```
 
-### Step 8 — Test karo
+### Step 8 — Test it
 
 ```bash
 # Health check
