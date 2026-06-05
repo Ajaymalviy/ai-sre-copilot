@@ -17,8 +17,8 @@ logger = structlog.get_logger()
 @router.post("/alertmanager")
 async def alertmanager_webhook(request: Request):
     """
-    AlertManager ka webhook receiver.
-    Payload ko Kafka incident.alerts topic pe publish karta hai.
+    webhook receiver of AlertManager.
+    Payload is published on Kafka incident.alerts topic 
     """
     try:
         payload = await request.json()
@@ -32,7 +32,7 @@ async def alertmanager_webhook(request: Request):
         status=payload.get("status"),
     )
 
-    # Kafka pe publish karo
+    # publish on Kafka   
     try:
         producer = AIOKafkaProducer(
             bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
@@ -52,18 +52,17 @@ async def alertmanager_webhook(request: Request):
         logger.error("Failed to publish to Kafka", error=str(e))
         raise HTTPException(status_code=500, detail=f"Kafka publish failed: {str(e)}")
 
-
 @router.post("/test-alert")
 async def test_alert(request: Request):
     """
-    Development ke liye: manually ek fake alert bhejo.
+    send a  fake alert just for development.
     curl -X POST http://localhost:8000/webhook/test-alert \
          -H 'Content-Type: application/json' \
          -d '{"alertname": "HighCPUUsage", "severity": "warning"}'
     """
     body = await request.json()
 
-    # Fake AlertManager format mein wrap karo
+    # wrap the body in AlertManager format
     fake_payload = {
         "receiver": "kafka-webhook",
         "status": "firing",
@@ -85,7 +84,7 @@ async def test_alert(request: Request):
         ],
     }
 
-    # Khud ko hi call karo
+    # call the same Kafka publish logic as the main webhook
     producer = AIOKafkaProducer(
         bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
         value_serializer=lambda v: json.dumps(v).encode("utf-8"),
