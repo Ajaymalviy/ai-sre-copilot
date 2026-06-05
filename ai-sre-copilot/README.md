@@ -1,13 +1,13 @@
 # AI SRE Copilot
 
-Automated incident investigation platform — alerts se lekar root cause tak, bina AI ke abhi.
+Automated incident investigation platform — coverup everything from alert to rootcause
 
 ---
 
 ## Prerequisites
 
 ```bash
-# Yeh sab installed hona chahiye
+# this should be installed
 docker --version        # Docker 24+
 docker compose version  # Docker Compose v2
 python3 --version       # Python 3.11+
@@ -17,13 +17,13 @@ python3 --version       # Python 3.11+
 
 ## Quick Start (Scratch se)
 
-### Step 1 — Project clone ya copy karo
+### Step 1 — clone or copy  Project 
 
 ```bash
 cd ai-sre-copilot
 ```
 
-### Step 2 — Infra start karo
+### Step 2 — start Infra  
 
 ```bash
 cd infra
@@ -34,7 +34,7 @@ Kya start hoga:
 | Service | Port | Purpose |
 |---|---|---|
 | Kafka | 9092 | Alert event bus |
-| Zookeeper | 2181 | Kafka ki zaroorat |
+| Zookeeper | 2181 | Kafka needs |
 | PostgreSQL | 5432 | Incident storage |
 | Redis | 6379 | Cache + HITL state |
 | Qdrant | 6333 | Vector DB (runbooks) |
@@ -44,13 +44,13 @@ Kya start hoga:
 | Tempo | 3200, 4317, 4318 | Distributed traces |
 | Grafana | 3000 | Dashboards |
 
-### Step 3 — Services healthy hone ka check karo
+### Step 3 — checking the health of services
 
 ```bash
-# Sab containers running hain?
+# is every containers running ?
 docker compose ps
 
-# Kafka topics bane ki nahi?
+# Kafka topics is created or not?
 docker compose exec kafka kafka-topics --bootstrap-server localhost:29092 --list
 
 # PostgreSQL connected?
@@ -60,7 +60,7 @@ docker compose exec postgres psql -U sre_user -d sre_copilot -c "\dt"
 ### Step 4 — Python environment setup
 
 ```bash
-cd ..  # project root pe jao
+cd ..  # move on projects root
 python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
@@ -71,28 +71,28 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# .env open karo aur apni values daalo (abhi default chalega local ke liye)
+# .env open it and fill your values(currently works defualt for local)
 ```
 
-### Step 6 — Runbooks index karo (Qdrant mein)
+### Step 6 — index Runbooks   (Qdrant mein)
 
 ```bash
 python scripts/ingest_runbooks.py
 ```
 
-### Step 7 — FastAPI app start karo
+### Step 7 — Start FastAPI app  
 
 ```bash
 uvicorn main:app --reload --port 8000
 ```
 
-### Step 8 — Test karo
+### Step 8 — Test it
 
 ```bash
 # Health check
 curl http://localhost:8000/health
 
-# Test alert bhejo
+# send test alert 
 curl -X POST http://localhost:8000/webhook/test-alert \
   -H 'Content-Type: application/json' \
   -d '{"alertname": "HighCPUUsage", "severity": "warning"}'
@@ -111,7 +111,7 @@ open http://localhost:8000/docs
 URL: http://localhost:3000
 Login: `admin` / `admin123`
 
-Datasources auto-configured hain:
+Datasources is auto-configured :
 - Prometheus (metrics)
 - Loki (logs)
 - Tempo (traces)
@@ -159,7 +159,7 @@ ai-sre-copilot/
 
 ---
 
-## Next Steps (Agle Phases)
+## Next Steps (for next Phases)
 
 - [ ] Phase 3: LangGraph agent pipeline (MetricsAgent, LogsAgent, TracesAgent)
 - [ ] Phase 4: RCA Agent (Ollama + Qwen)
@@ -173,12 +173,12 @@ ai-sre-copilot/
 **Kafka connection refused:**
 ```bash
 docker compose logs kafka | tail -20
-# Zookeeper healthy hone ka wait karo
+#waiting for healthy of Zookeeper 
 ```
 
 **PostgreSQL auth failed:**
 ```bash
-# .env mein DATABASE_URL check karo
+# check DATABASE_URL in .env  
 docker compose exec postgres psql -U sre_user -d sre_copilot
 ```
 

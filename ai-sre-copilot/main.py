@@ -1,8 +1,8 @@
 """
 AI SRE Copilot — FastAPI Entry Point
-Yahan se app shuru hoti hai:
+app is starting from here:
   1. DB connection
-  2. Kafka consumer start
+  2. Start Kafka consumer 
   3. REST API endpoints
 """
 import asyncio
