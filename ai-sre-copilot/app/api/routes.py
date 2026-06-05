@@ -1,5 +1,5 @@
 """
-REST API Routes — Incidents
+REST API Routes — Incidents with RCA & Fix
 """
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
@@ -72,6 +72,68 @@ async def get_incident(
     }
 
 
+@router.get("/incidents/{incident_id}/analysis")
+async def get_analysis(
+    incident_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Phase 2 Analysis — Metrics, Logs, Traces, Evidence
+    """
+    result = await db.execute(
+        select(Incident).where(Incident.id == incident_id)
+    )
+    incident = result.scalar_one_or_none()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    ann = incident.annotations or {}
+
+    return {
+        "incident_id":     str(incident.id),
+        "alert_name":      incident.alert_name,
+        "severity":        incident.severity,
+        "status":          incident.status,
+        "metrics_summary":  ann.get("metrics_summary",  "Not yet analyzed"),
+        "logs_summary":     ann.get("logs_summary",     "Not yet analyzed"),
+        "traces_summary":   ann.get("traces_summary",   "Not yet analyzed"),
+        "fused_evidence":   ann.get("fused_evidence",   "Not yet analyzed"),
+        "runbooks_matched": ann.get("runbooks_matched", []),
+    }
+
+
+@router.get("/incidents/{incident_id}/rca")
+async def get_rca(
+    incident_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Phase 3 RCA — Root Cause Analysis & Fix Plan
+    """
+    result = await db.execute(
+        select(Incident).where(Incident.id == incident_id)
+    )
+    incident = result.scalar_one_or_none()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    ann = incident.annotations or {}
+
+    return {
+        "incident_id":    str(incident.id),
+        "alert_name":     incident.alert_name,
+        "severity":       incident.severity,
+        "status":         incident.status,
+        "root_cause":     ann.get("root_cause",      "RCA not yet done"),
+        "confidence":     ann.get("rca_confidence",  0.0),
+        "fix_plan":       ann.get("fix_plan",        "Fix not yet generated"),
+        "fix_commands":   ann.get("fix_commands",    []),
+        "runbooks":       ann.get("runbooks_matched", []),
+    }
+
+
 @router.patch("/incidents/{incident_id}/approve")
 async def approve_fix(
     incident_id: UUID,
@@ -89,7 +151,31 @@ async def approve_fix(
     incident.status = "fix_approved"
     await db.commit()
 
-    return {"message": "Fix approved", "incident_id": str(incident_id)}
+    return {"message": "Fix approved", "incident_id": str(incident_id), "status": "fix_approved"}
+
+
+@router.patch("/incidents/{incident_id}/reject")
+async def reject_fix(
+    incident_id: UUID,
+    reason: str = "User rejected",
+    db: AsyncSession = Depends(get_db),
+):
+    """HITL: Fix reject karo"""
+    result = await db.execute(
+        select(Incident).where(Incident.id == incident_id)
+    )
+    incident = result.scalar_one_or_none()
+
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    incident.status = "fix_rejected"
+    if incident.annotations is None:
+        incident.annotations = {}
+    incident.annotations["rejection_reason"] = reason
+    await db.commit()
+
+    return {"message": "Fix rejected", "incident_id": str(incident_id), "reason": reason}
 
 
 @router.patch("/incidents/{incident_id}/resolve")
